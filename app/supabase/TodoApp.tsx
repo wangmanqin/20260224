@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
 
 interface Todo {
@@ -18,8 +19,20 @@ export default function TodoApp() {
   const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editTodo, setEditTodo] = useState({ title: '', description: '' })
+  const [user, setUser] = useState<any>(null)
   
+  const router = useRouter()
   const supabase = createClient()
+
+  useEffect(() => {
+    // 获取当前用户
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      setUser(user)
+    }
+    
+    getUser()
+  }, [])
 
   useEffect(() => {
     fetchTodos()
@@ -48,9 +61,19 @@ export default function TodoApp() {
   const fetchTodos = async () => {
     try {
       setLoading(true)
+      
+      // 获取当前用户
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        setTodos([])
+        return
+      }
+      
       const { data, error } = await supabase
         .from('todos')
         .select('*')
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
       if (error) throw error
@@ -66,9 +89,18 @@ export default function TodoApp() {
     if (!newTodo.title.trim()) return
 
     try {
+      // 获取当前用户
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        console.error('用户未登录')
+        return
+      }
+      
       const { error } = await supabase
         .from('todos')
         .insert([{
+          user_id: user.id,
           title: newTodo.title,
           description: newTodo.description,
           completed: false
@@ -139,6 +171,16 @@ export default function TodoApp() {
     setEditTodo({ title: '', description: '' })
   }
 
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut()
+      router.push('/login')
+      router.refresh()
+    } catch (error) {
+      console.error('登出失败:', error)
+    }
+  }
+
   return (
     <div className="space-y-8">
       {/* 添加待办事项表单 */}
@@ -182,10 +224,25 @@ export default function TodoApp() {
       {/* 待办事项列表 */}
       <div>
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold text-gray-800">待办事项列表</h2>
-          <span className="text-sm text-gray-500">
-            共 {todos.length} 个待办事项
-          </span>
+          <div>
+            <h2 className="text-xl font-semibold text-gray-800">待办事项列表</h2>
+            {user && (
+              <p className="text-sm text-gray-500 mt-1">
+                用户: {user.email} • 共 {todos.length} 个待办事项
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-gray-500">
+              共 {todos.length} 个待办事项
+            </span>
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
+            >
+              退出登录
+            </button>
+          </div>
         </div>
 
         {loading ? (

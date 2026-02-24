@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supabase 文件上传测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+        }
+        .step {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 6px;
+        }
+        .code {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+            overflow-x: auto;
+        }
+        .button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        .button:hover {
+            background: #2563eb;
+        }
+        .button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 6px;
+            margin: 10px 0;
+        }
+        .success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #a7f3d0;
+        }
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+        .info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #bfdbfe;
+        }
+        .progress {
+            width: 100%;
+            height: 20px;
+            background: #e5e7eb;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-bar {
+            height: 100%;
+            background: #3b82f6;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Supabase 文件上传测试</h1>
+        
+        <div class="section">
+            <h2>问题诊断</h2>
+            <div class="step">
+                <strong>错误信息:</strong> "new row violates row-level security policy"
+            </div>
+            <div class="step">
+                <strong>可能的原因:</strong>
+                <ul>
+                    <li>存储桶的 RLS（行级安全）策略配置不正确</li>
+                    <li>用户认证状态问题</li>
+                    <li>存储桶权限设置问题</li>
+                    <li>策略条件过于严格</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>解决方案</h2>
+            
+            <div class="step">
+                <h3>步骤 1: 运行 RLS 修复脚本</h3>
+                <p>在 Supabase SQL 编辑器中运行以下脚本：</p>
+                <div class="code">
+-- 1. 删除现有策略
+DROP POLICY IF EXISTS "允许所有人读取 temp_1 文件" ON storage.objects;
+DROP POLICY IF EXISTS "允许认证用户上传到 temp_1" ON storage.objects;
+DROP POLICY IF EXISTS "允许认证用户更新 temp_1 文件" ON storage.objects;
+DROP POLICY IF EXISTS "允许认证用户删除 temp_1 文件" ON storage.objects;
+
+-- 2. 创建简化策略
+CREATE POLICY "temp_1_select_policy"
+ON storage.objects FOR SELECT
+USING (bucket_id = 'temp_1');
+
+CREATE POLICY "temp_1_insert_policy"
+ON storage.objects FOR INSERT
+WITH CHECK (bucket_id = 'temp_1');
+
+CREATE POLICY "temp_1_update_policy"
+ON storage.objects FOR UPDATE
+USING (bucket_id = 'temp_1')
+WITH CHECK (bucket_id = 'temp_1');
+
+CREATE POLICY "temp_1_delete_policy"
+ON storage.objects FOR DELETE
+USING (bucket_id = 'temp_1');
+                </div>
+            </div>
+
+            <div class="step">
+                <h3>步骤 2: 验证存储桶配置</h3>
+                <p>在 Supabase Dashboard 中检查：</p>
+                <ul>
+                    <li>Storage → temp_1 是否存在</li>
+                    <li>存储桶是否为 "Public"（公开）</li>
+                    <li>文件大小限制是否合适</li>
+                    <li>Policies 页面中策略是否正确应用</li>
+                </ul>
+            </div>
+
+            <div class="step">
+                <h3>步骤 3: 测试用户认证</h3>
+                <p>确保用户已正确登录：</p>
+                <div class="code">
+// 检查用户认证状态
+const { data: { user } } = await supabase.auth.getUser();
+console.log('当前用户:', user);
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>直接测试上传</h2>
+            
+            <div id="status" class="status info">
+                准备测试文件上传...
+            </div>
+
+            <div>
+                <input type="file" id="fileInput">
+                <button class="button" onclick="testUpload()">测试上传</button>
+                <button class="button" onclick="testAuth()">测试认证</button>
+                <button class="button" onclick="testBucket()">测试存储桶</button>
+            </div>
+
+            <div class="progress" id="progressContainer" style="display: none;">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+
+            <div id="result"></div>
+        </div>
+
+        <div class="section">
+            <h2>备用方案</h2>
+            
+            <div class="step">
+                <h3>方案 A: 完全禁用 RLS（仅测试）</h3>
+                <div class="code">
+-- 临时禁用 RLS（测试后记得重新启用）
+ALTER TABLE storage.objects DISABLE ROW LEVEL SECURITY;
+
+-- 测试完成后重新启用
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+                </div>
+            </div>
+
+            <div class="step">
+                <h3>方案 B: 使用管理员 API 密钥</h3>
+                <p>在环境变量中使用服务角色密钥：</p>
+                <div class="code">
+NEXT_PUBLIC_SUPABASE_URL=https://ptdutdjpifyjypmqnedc.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
+                </div>
+                <p><em>注意：服务角色密钥有完全访问权限，仅用于测试</em></p>
+            </div>
+
+            <div class="step">
+                <h3>方案 C: 检查存储桶所有者字段</h3>
+                <p>Supabase Storage 可能需要设置 owner 字段：</p>
+                <div class="code">
+// 在上传时设置 owner
+const { data, error } = await supabase.storage
+  .from('temp_1')
+  .upload(filePath, file, {
+    cacheControl: '3600',
+    upsert: true,
+    // 可能需要手动设置元数据
+    metadata: {
+      owner: user.id
+    }
+  });
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>快速链接</h2>
+            <div>
+                <button class="button" onclick="window.open('http://localhost:3000/storage', '_blank')">
+                    访问云盘页面
+                </button>
+                <button class="button" onclick="window.open('http://localhost:3000/login', '_blank')">
+                    登录页面
+                </button>
+                <button class="button" onclick="window.open('https://supabase.com/dashboard/project/ptdutdjpifyjypmqnedc/storage', '_blank')">
+                    Supabase 控制台
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 从环境变量获取 Supabase 配置
+        const supabaseUrl = 'https://ptdutdjpifyjypmqnedc.supabase.co';
+        const supabaseKey = 'sb_publishable_CyYwl1ZvWRxMi32Mb2G_Lg_Ai4cQrN4';
+
+        // 创建 Supabase 客户端
+        const { createClient } = window.supabase || {};
+        let supabase;
+
+        if (createClient) {
+            supabase = createClient(supabaseUrl, supabaseKey);
+        } else {
+            document.getElementById('status').innerHTML = 
+                '<div class="error">Supabase 客户端库未加载</div>';
+        }
+
+        async function testAuth() {
+            const status = document.getElementById('status');
+            status.innerHTML = '<div class="info">检查用户认证状态...</div>';
+            
+            try {
+                const { data: { user }, error } = await supabase.auth.getUser();
+                
+                if (error) {
+                    status.innerHTML = `<div class="error">认证错误: ${error.message}</div>`;
+                } else if (user) {
+                    status.innerHTML = `<div class="success">用户已登录: ${user.email}</div>`;
+                } else {
+                    status.innerHTML = '<div class="error">用户未登录，请先登录</div>';
+                }
+            } catch (err) {
+                status.innerHTML = `<div class="error">认证检查失败: ${err.message}</div>`;
+            }
+        }
+
+        async function testBucket() {
+            const status = document.getElementById('status');
+            status.innerHTML = '<div class="info">检查存储桶...</div>';
+            
+            try {
+                const { data, error } = await supabase.storage
+                    .from('temp_1')
+                    .list();
+                
+                if (error) {
+                    status.innerHTML = `<div class="error">存储桶访问错误: ${error.message}</div>`;
+                } else {
+                    status.innerHTML = `<div class="success">存储桶访问成功，找到 ${data.length} 个文件/文件夹</div>`;
+                }
+            } catch (err) {
+                status.innerHTML = `<div class="error">存储桶检查失败: ${err.message}</div>`;
+            }
+        }
+
+        async function testUpload() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                document.getElementById('status').innerHTML = 
+                    '<div class="error">请先选择文件</div>';
+                return;
+            }
+
+            const status = document.getElementById('status');
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBar = document.getElementById('progressBar');
+            const resultDiv = document.getElementById('result');
+            
+            status.innerHTML = '<div class="info">开始上传文件...</div>';
+            progressContainer.style.display = 'block';
+            progressBar.style.width = '0%';
+            resultDiv.innerHTML = '';
+
+            try {
+                // 检查用户认证
+                const { data: { user }, error: authError } = await supabase.auth.getUser();
+                
+                if (authError || !user) {
+                    status.innerHTML = '<div class="error">请先登录用户</div>';
+                    return;
+                }
+
+                // 创建测试文件名
+                const timestamp = Date.now();
+                const testFileName = `test_${timestamp}_${file.name}`;
+                
+                // 模拟进度更新
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    progress += 5;
+                    if (progress >= 95) {
+                        clearInterval(progressInterval);
+                    }
+                    progressBar.style.width = `${progress}%`;
+                }, 100);
+
+                // 实际上传文件
+                const { data, error } = await supabase.storage
+                    .from('temp_1')
+                    .upload(testFileName, file, {
+                        cacheControl: '3600',
+                        upsert: false
+                    });
+
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+
+                if (error) {
+                    status.innerHTML = `<div class="error">上传失败: ${error.message}</div>`;
+                    
+                    // 提供详细的错误分析
+                    let analysis = '<div class="error" style="margin-top: 10px;">';
+                    analysis += '<strong>错误分析:</strong><br>';
+                    
+                    if (error.message.includes('row-level security')) {
+                        analysis += '• RLS（行级安全）策略阻止了上传<br>';
+                        analysis += '• 请运行上面的 RLS 修复脚本<br>';
+                        analysis += '• 或检查存储桶权限设置';
+                    } else if (error.message.includes('bucket')) {
+                        analysis += '• 存储桶可能不存在或不可访问<br>';
+                        analysis += '• 请检查存储桶名称和权限';
+                    } else if (error.message.includes('permission')) {
+                        analysis += '• 权限不足<br>';
+                        analysis += '• 请检查用户认证状态和存储桶策略';
+                    } else {
+                        analysis += `• 未知错误: ${error.message}`;
+                    }
+                    
+                    analysis += '</div>';
+                    resultDiv.innerHTML = analysis;
+                } else {
+                    status.innerHTML = `<div class="success">上传成功！文件: ${testFileName}</div>`;
+                    
+                    // 显示成功信息
+                    resultDiv.innerHTML = `
+                        <div class="success" style="margin-top: 10px;">
+                            <strong>上传详情:</strong><br>
+                            • 文件名: ${testFileName}<br>
+                            • 文件大小: ${formatFileSize(file.size)}<br>
+                            • 存储路径: ${data.path}<br>
+                            • 用户: ${user.email}<br>
+                            • 时间: ${new Date().toLocaleString()}
+                        </div>
+                    `;
+                }
+            } catch (err) {
+                status.innerHTML = `<div class="error">上传过程出错: ${err.message}</div>`;
+                console.error('上传错误:', err);
+            }
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // 加载 Supabase 客户端库
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/@supabase/supabase-js@2';
+        script.onload = function() {
+            supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+            document.getElementById('status').innerHTML = 
+                '<div class="success">Supabase 客户端已加载，准备测试</div>';
+        };
+        script.onerror = function() {
+            document.getElementById('status').innerHTML = 
+                '<div class="error">无法加载 Supabase 客户端库</div>';
+        };
+        document.head.appendChild(script);
+    </script>
+</body>
+</html>
