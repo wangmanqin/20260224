@@ -64,45 +64,79 @@ export class StorageManager {
     }
   }
 
-  // 上传文件
+  // 上传文件 - 使用服务器端 API（推荐用于解决网络问题）
+  async uploadFileViaAPI(
+    file: File,
+    folderPath: string = '',
+    onProgress?: (progress: UploadProgress) => void
+  ): Promise<{ path: string }> {
+    try {
+      console.log('使用服务器端 API 上传文件:', {
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        folderPath
+      });
+
+      // 创建表单数据
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('folderPath', folderPath);
+
+      // 通过服务器端 API 上传
+      const response = await fetch('/api/storage', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Upload failed via server API');
+      }
+
+      const result = await response.json();
+      
+      console.log('服务器端上传成功:', result);
+
+      // 模拟进度更新
+      if (onProgress) {
+        let progress = 0;
+        const interval = setInterval(() => {
+          progress += 10;
+          if (progress >= 100) {
+            progress = 100;
+            clearInterval(interval);
+          }
+          onProgress({
+            loaded: (file.size * progress) / 100,
+            total: file.size,
+            percentage: progress
+          });
+        }, 100);
+      }
+
+      return { path: result.data.path };
+    } catch (error) {
+      console.error('服务器端上传失败:', error);
+      throw error;
+    }
+  }
+
+  // 上传文件 - 使用客户端（保留原有方法用于对比）
   async uploadFile(
     file: File,
     folderPath: string = '',
     onProgress?: (progress: UploadProgress) => void
   ): Promise<{ path: string }> {
     try {
-      // 临时解决方案：跳过认证检查以测试 RLS 问题
-      // 注意：生产环境应该启用认证检查
-      console.log('⚠️ 临时方案: 跳过认证检查以测试 RLS 问题')
-      
-      // 正常情况下的认证检查（注释掉用于测试）
-      /*
-      const { data: { user }, error: authError } = await this.supabase.auth.getUser()
-      
-      if (authError) {
-        console.error('认证检查失败:', authError)
-        throw new Error(`认证失败: ${authError.message}`)
-      }
-      
-      if (!user) {
-        throw new Error('用户未登录，请先登录')
-      }
-
-      console.log('上传文件信息:', {
-        fileName: file.name,
-        fileSize: file.size,
-        fileType: file.type,
-        user: user.email,
-        folderPath
-      })
-      */
+      console.log('⚠️ 尝试使用客户端上传（可能遇到网络问题）');
       
       console.log('上传文件信息:', {
         fileName: file.name,
         fileSize: file.size,
         fileType: file.type,
         folderPath
-      })
+      });
 
       const filePath = folderPath ? `${folderPath}/${file.name}` : file.name
       
@@ -117,20 +151,20 @@ export class StorageManager {
         })
 
       if (error) {
-        console.error('Supabase 上传错误详情:', {
-          message: error.message,
-          // 注意：StorageError 类型可能没有这些属性
-          // details: error.details,
-          // hint: error.hint,
-          // code: error.code
-        })
+        console.error('客户端上传失败，切换到服务器端 API:', error.message);
+        
+        // 如果客户端上传失败，尝试使用服务器端 API
+        if (error.message.includes('fetch') || error.message.includes('network')) {
+          console.log('检测到网络错误，使用服务器端 API 重试...');
+          return await this.uploadFileViaAPI(file, folderPath, onProgress);
+        }
         
         // 提供更友好的错误信息和解决方案
-        let friendlyMessage = error.message
-        let solution = ''
+        let friendlyMessage = error.message;
+        let solution = '';
         
         if (error.message.includes('row-level security')) {
-          friendlyMessage = '权限错误: 行级安全策略阻止了上传。'
+          friendlyMessage = '权限错误: 行级安全策略阻止了上传。';
           solution = `
 立即解决方案:
 1. 在 Supabase SQL 编辑器中运行:
@@ -140,53 +174,62 @@ export class StorageManager {
    
 3. 测试后记得重新启用 RLS:
    ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
-          `
+          `;
         } else if (error.message.includes('bucket')) {
-          friendlyMessage = `存储桶错误: 无法访问存储桶 "${BUCKET_NAME}"。`
+          friendlyMessage = `存储桶错误: 无法访问存储桶 "${BUCKET_NAME}"。`;
           solution = `
 解决方案:
 1. 检查存储桶是否存在
 2. 确认存储桶为 Public（公开）
 3. 在 Supabase Dashboard 中创建存储桶
-          `
+          `;
         } else if (error.message.includes('permission')) {
-          friendlyMessage = '权限不足: 当前用户没有上传文件的权限。'
+          friendlyMessage = '权限不足: 当前用户没有上传文件的权限。';
           solution = `
 解决方案:
 1. 检查用户认证状态
 2. 确保用户已登录
 3. 检查存储桶的 INSERT 策略
-          `
+          `;
+        } else if (error.message.includes('fetch') || error.message.includes('network')) {
+          friendlyMessage = '网络错误: 无法连接到 Supabase。';
+          solution = `
+解决方案:
+1. 检查网络连接
+2. 确保 Supabase 项目在线
+3. 使用服务器端 API 上传（已自动切换）
+4. 检查 .env.local 配置
+          `;
         }
         
-        console.error('解决方案:', solution)
-        throw new Error(friendlyMessage + '\n\n' + solution)
+        console.error('解决方案:', solution);
+        throw new Error(friendlyMessage + '\n\n' + solution);
       }
 
-      console.log('上传成功:', data)
+      console.log('客户端上传成功:', data);
 
       // 模拟进度更新（因为 Supabase 可能不支持 onUploadProgress）
       if (onProgress) {
         // 模拟进度更新
-        let progress = 0
+        let progress = 0;
         const interval = setInterval(() => {
-          progress += 10
+          progress += 10;
           if (progress >= 100) {
-            progress = 100
-            clearInterval(interval)
+            progress = 100;
+            clearInterval(interval);
           }
           onProgress({
             loaded: (file.size * progress) / 100,
             total: file.size,
             percentage: progress
-          })
-        }, 100)
+          });
+        }, 100);
       }
 
-      return { path: data.path }
+      return { path: data.path };
     } catch (error) {
-      console.error('上传文件失败:', error)
-      throw error
+      console.error('上传文件失败:', error);
+      throw error;
     }
   }
 

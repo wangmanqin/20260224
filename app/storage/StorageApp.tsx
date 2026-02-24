@@ -78,6 +78,7 @@ export default function StorageApp() {
       setSuccess('')
       setUploadProgress(0)
 
+      // 尝试使用客户端上传，如果失败则自动切换到服务器端 API
       await storageManager.uploadFile(
         selectedFile,
         currentFolder,
