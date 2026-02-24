@@ -84,7 +84,7 @@ export class StorageManager {
       formData.append('folderPath', folderPath);
 
       // 通过服务器端 API 上传
-      const response = await fetch('/api/storage', {
+      const response = await fetch('/api/supabase-storage', {
         method: 'POST',
         body: formData,
       });
