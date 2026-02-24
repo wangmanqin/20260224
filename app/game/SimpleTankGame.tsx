@@ -1,27 +1,50 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { createClient } from '@/utils/supabase/client';
-import { useRouter } from 'next/navigation';
 
 // 游戏常量
 const GAME_CONFIG = {
   CANVAS_WIDTH: 800,
   CANVAS_HEIGHT: 600,
   TANK_SIZE: 40,
-  TANK_SPEED: 3,
+  TANK_SPEED: 5,
+  BULLET_SIZE: 8,
+  BULLET_SPEED: 10,
 };
+
+// 子弹类型
+interface Bullet {
+  id: number;
+  x: number;
+  y: number;
+  direction: 'up' | 'down' | 'left' | 'right';
+  color: string;
+}
 
 // 简单版本的坦克游戏
 export default function SimpleTankGame() {
-  const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number>(0);
   
-  const [supabase] = useState(() => createClient());
   const [gameStarted, setGameStarted] = useState(false);
-  const [myTank, setMyTank] = useState({ x: 50, y: 500, direction: 'up', color: '#4A90E2' });
-  const [enemyTank, setEnemyTank] = useState({ x: 710, y: 500, direction: 'up', color: '#E74C3C' });
+  const [lastKeyPressed, setLastKeyPressed] = useState<string>('无');
+  const [displayTank, setDisplayTank] = useState({ x: 50, y: 500, direction: 'up' as const, color: '#4A90E2' });
+  const [bullets, setBullets] = useState<Bullet[]>([]);
+
+  // 使用 ref 存储游戏状态，避免状态更新延迟
+  const myTankRef = useRef({ x: 50, y: 500, direction: 'up' as const, color: '#4A90E2' });
+  const enemyTankRef = useRef({ x: 710, y: 500, direction: 'up' as const, color: '#E74C3C' });
+  const bulletsRef = useRef<Bullet[]>([]);
+  let bulletIdCounter = useRef(0);
+
+  // 键盘控制状态
+  const keysPressed = useRef({
+    ArrowUp: false,
+    ArrowDown: false,
+    ArrowLeft: false,
+    ArrowRight: false,
+    Space: false
+  });
 
   // 绘制坦克
   const drawTank = (ctx: CanvasRenderingContext2D, tank: any) => {
@@ -52,6 +75,113 @@ export default function SimpleTankGame() {
     ctx.fillRect(indicatorX, indicatorY, 4, 4);
   };
 
+  // 绘制子弹
+  const drawBullet = (ctx: CanvasRenderingContext2D, bullet: Bullet) => {
+    ctx.fillStyle = bullet.color;
+    ctx.beginPath();
+    ctx.arc(bullet.x, bullet.y, GAME_CONFIG.BULLET_SIZE / 2, 0, Math.PI * 2);
+    ctx.fill();
+  };
+
+  // 发射子弹
+  const fireBullet = () => {
+    const tank = myTankRef.current;
+    let bulletX = tank.x + GAME_CONFIG.TANK_SIZE / 2;
+    let bulletY = tank.y + GAME_CONFIG.TANK_SIZE / 2;
+    
+    // 根据坦克方向调整子弹起始位置
+    switch (tank.direction) {
+      case 'up':
+        bulletY = tank.y;
+        break;
+      case 'down':
+        bulletY = tank.y + GAME_CONFIG.TANK_SIZE;
+        break;
+      case 'left':
+        bulletX = tank.x;
+        break;
+      case 'right':
+        bulletX = tank.x + GAME_CONFIG.TANK_SIZE;
+        break;
+    }
+    
+    const newBullet: Bullet = {
+      id: bulletIdCounter.current++,
+      x: bulletX,
+      y: bulletY,
+      direction: tank.direction,
+      color: '#FFD700' // 金色子弹
+    };
+    
+    bulletsRef.current = [...bulletsRef.current, newBullet];
+    setBullets(bulletsRef.current);
+  };
+
+  // 更新子弹位置
+  const updateBullets = () => {
+    const updatedBullets = bulletsRef.current.map(bullet => {
+      let newX = bullet.x;
+      let newY = bullet.y;
+      
+      switch (bullet.direction) {
+        case 'up':
+          newY -= GAME_CONFIG.BULLET_SPEED;
+          break;
+        case 'down':
+          newY += GAME_CONFIG.BULLET_SPEED;
+          break;
+        case 'left':
+          newX -= GAME_CONFIG.BULLET_SPEED;
+          break;
+        case 'right':
+          newX += GAME_CONFIG.BULLET_SPEED;
+          break;
+      }
+      
+      return { ...bullet, x: newX, y: newY };
+    });
+    
+    // 移除超出画布的子弹
+    const filteredBullets = updatedBullets.filter(bullet => 
+      bullet.x >= 0 && bullet.x <= GAME_CONFIG.CANVAS_WIDTH &&
+      bullet.y >= 0 && bullet.y <= GAME_CONFIG.CANVAS_HEIGHT
+    );
+    
+    bulletsRef.current = filteredBullets;
+    setBullets(filteredBullets);
+  };
+
+  // 更新坦克位置
+  const updateTankPosition = () => {
+    const tank = myTankRef.current;
+    let newX = tank.x;
+    let newY = tank.y;
+    let direction = tank.direction;
+
+    if (keysPressed.current.ArrowUp) {
+      direction = 'up';
+      newY = Math.max(0, tank.y - GAME_CONFIG.TANK_SPEED);
+    }
+    if (keysPressed.current.ArrowDown) {
+      direction = 'down';
+      newY = Math.min(GAME_CONFIG.CANVAS_HEIGHT - GAME_CONFIG.TANK_SIZE, tank.y + GAME_CONFIG.TANK_SPEED);
+    }
+    if (keysPressed.current.ArrowLeft) {
+      direction = 'left';
+      newX = Math.max(0, tank.x - GAME_CONFIG.TANK_SPEED);
+    }
+    if (keysPressed.current.ArrowRight) {
+      direction = 'right';
+      newX = Math.min(GAME_CONFIG.CANVAS_WIDTH / 2 - GAME_CONFIG.TANK_SIZE - 10, tank.x + GAME_CONFIG.TANK_SPEED);
+    }
+
+    // 更新 ref
+    myTankRef.current = { ...tank, x: newX, y: newY, direction };
+    
+    // 更新显示状态
+    setDisplayTank({ ...myTankRef.current });
+  };
+
   // 游戏主循环
   const gameLoop = () => {
     const canvas = canvasRef.current;
@@ -60,13 +190,22 @@ export default function SimpleTankGame() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // 更新坦克位置
+    updateTankPosition();
+    
+    // 更新子弹位置
+    updateBullets();
+
     // 清除画布
     ctx.fillStyle = '#333';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // 绘制坦克
-    drawTank(ctx, myTank);
-    drawTank(ctx, enemyTank);
+    drawTank(ctx, myTankRef.current);
+    drawTank(ctx, enemyTankRef.current);
+    
+    // 绘制子弹
+    bulletsRef.current.forEach(bullet => drawBullet(ctx, bullet));
 
     // 绘制中间分割线
     ctx.strokeStyle = '#555';
@@ -83,38 +222,41 @@ export default function SimpleTankGame() {
   // 键盘控制
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      setLastKeyPressed(e.key);
+      
       if (!gameStarted) return;
 
-      setMyTank(prev => {
-        let newX = prev.x;
-        let newY = prev.y;
-        let direction = prev.direction;
-
-        switch (e.key) {
-          case 'ArrowUp':
-            direction = 'up';
-            newY = Math.max(0, prev.y - GAME_CONFIG.TANK_SPEED);
-            break;
-          case 'ArrowDown':
-            direction = 'down';
-            newY = Math.min(GAME_CONFIG.CANVAS_HEIGHT - GAME_CONFIG.TANK_SIZE, prev.y + GAME_CONFIG.TANK_SPEED);
-            break;
-          case 'ArrowLeft':
-            direction = 'left';
-            newX = Math.max(0, prev.x - GAME_CONFIG.TANK_SPEED);
-            break;
-          case 'ArrowRight':
-            direction = 'right';
-            newX = Math.min(GAME_CONFIG.CANVAS_WIDTH / 2 - GAME_CONFIG.TANK_SIZE - 10, prev.x + GAME_CONFIG.TANK_SPEED);
-            break;
+      // 阻止默认行为，防止页面滚动
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+        e.preventDefault();
+      }
+      
+      if (e.key === ' ') {
+        // 空格键发射子弹
+        if (!keysPressed.current.Space) {
+          keysPressed.current.Space = true;
+          fireBullet();
         }
-
-        return { ...prev, x: newX, y: newY, direction };
-      });
+      } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        keysPressed.current[e.key as keyof typeof keysPressed.current] = true;
+      }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === ' ') {
+        keysPressed.current.Space = false;
+      } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        keysPressed.current[e.key as keyof typeof keysPressed.current] = false;
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
+    
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keyup', handleKeyUp);
+    };
   }, [gameStarted]);
 
   // 启动游戏循环
@@ -149,6 +291,7 @@ export default function SimpleTankGame() {
           </button>
           <div className="mt-8 text-gray-400 text-sm">
             <p>使用方向键控制坦克移动</p>
+            <p>按空格键发射子弹</p>
             <p>你是蓝色坦克，红色坦克是对手</p>
           </div>
         </div>
@@ -163,6 +306,10 @@ export default function SimpleTankGame() {
               <div className="w-4 h-4 bg-red-500 rounded"></div>
               <span>对手</span>
             </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-4 h-4 bg-yellow-500 rounded"></div>
+              <span>子弹</span>
+            </div>
           </div>
           
           <div className="border-2 border-gray-700 rounded-lg overflow-hidden">
@@ -175,7 +322,11 @@ export default function SimpleTankGame() {
           </div>
           
           <div className="mt-4 text-sm text-gray-400">
-            <p>使用方向键移动</p>
+            <p>使用方向键移动，按空格键发射子弹</p>
+            <p>最后按下的键: {lastKeyPressed}</p>
+            <p>游戏状态: {gameStarted ? '进行中' : '未开始'}</p>
+            <p>坦克位置: X={displayTank.x}, Y={displayTank.y}</p>
+            <p>子弹数量: {bullets.length}</p>
           </div>
         </div>
       )}
