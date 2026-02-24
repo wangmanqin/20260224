@@ -1,9 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
-import { cookies } from 'next/headers'
 
 export default async function Page() {
-  const cookieStore = await cookies()
-  const supabase = createClient(cookieStore)
+  const supabase = createClient()
 
   const { data: todos } = await supabase.from('todos').select()
 
@@ -14,7 +12,7 @@ export default async function Page() {
         <ul className="w-full">
           {todos?.map((todo) => (
             <li key={todo.id} className="mb-4 p-4 border border-zinc-200 rounded-lg dark:border-zinc-800">
-              {todo}
+              {JSON.stringify(todo)}
             </li>
           ))}
         </ul>
