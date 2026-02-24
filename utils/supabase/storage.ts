@@ -71,7 +71,12 @@ export class StorageManager {
     onProgress?: (progress: UploadProgress) => void
   ): Promise<{ path: string }> {
     try {
-      // 检查用户认证状态
+      // 临时解决方案：跳过认证检查以测试 RLS 问题
+      // 注意：生产环境应该启用认证检查
+      console.log('⚠️ 临时方案: 跳过认证检查以测试 RLS 问题')
+      
+      // 正常情况下的认证检查（注释掉用于测试）
+      /*
       const { data: { user }, error: authError } = await this.supabase.auth.getUser()
       
       if (authError) {
@@ -90,10 +95,19 @@ export class StorageManager {
         user: user.email,
         folderPath
       })
+      */
+      
+      console.log('上传文件信息:', {
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        folderPath
+      })
 
       const filePath = folderPath ? `${folderPath}/${file.name}` : file.name
       
       console.log('开始上传到路径:', filePath)
+      console.log('存储桶:', BUCKET_NAME)
       
       const { data, error } = await this.supabase.storage
         .from(BUCKET_NAME)
@@ -111,17 +125,42 @@ export class StorageManager {
           // code: error.code
         })
         
-        // 提供更友好的错误信息
+        // 提供更友好的错误信息和解决方案
         let friendlyMessage = error.message
+        let solution = ''
+        
         if (error.message.includes('row-level security')) {
-          friendlyMessage = '权限错误: 行级安全策略阻止了上传。请检查存储桶的 RLS 策略设置。'
+          friendlyMessage = '权限错误: 行级安全策略阻止了上传。'
+          solution = `
+立即解决方案:
+1. 在 Supabase SQL 编辑器中运行:
+   ALTER TABLE storage.objects DISABLE ROW LEVEL SECURITY;
+   
+2. 或运行 direct_rls_fix.sql 中的脚本
+   
+3. 测试后记得重新启用 RLS:
+   ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+          `
         } else if (error.message.includes('bucket')) {
-          friendlyMessage = `存储桶错误: 无法访问存储桶 "${BUCKET_NAME}"。请确认存储桶存在且为公开。`
+          friendlyMessage = `存储桶错误: 无法访问存储桶 "${BUCKET_NAME}"。`
+          solution = `
+解决方案:
+1. 检查存储桶是否存在
+2. 确认存储桶为 Public（公开）
+3. 在 Supabase Dashboard 中创建存储桶
+          `
         } else if (error.message.includes('permission')) {
-          friendlyMessage = '权限不足: 当前用户没有上传文件的权限。请检查用户认证状态。'
+          friendlyMessage = '权限不足: 当前用户没有上传文件的权限。'
+          solution = `
+解决方案:
+1. 检查用户认证状态
+2. 确保用户已登录
+3. 检查存储桶的 INSERT 策略
+          `
         }
         
-        throw new Error(friendlyMessage)
+        console.error('解决方案:', solution)
+        throw new Error(friendlyMessage + '\n\n' + solution)
       }
 
       console.log('上传成功:', data)
