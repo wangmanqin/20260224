@@ -52,6 +52,12 @@ export default function TankGame() {
 
       if (roomError) throw roomError;
 
+      // 根据玩家编号设置初始位置
+      const initialPositions = [
+        { x: 50, y: GAME_CONFIG.CANVAS_HEIGHT - 100 },  // 玩家1在底部
+        { x: GAME_CONFIG.CANVAS_WIDTH - 90, y: GAME_CONFIG.CANVAS_HEIGHT - 100 }  // 玩家2在右下角
+      ];
+
       // 创建玩家
       const { data: newPlayer, error: playerError } = await supabase
         .from('game_players')
@@ -59,6 +65,11 @@ export default function TankGame() {
           room_id: newRoom.id,
           user_id: user.id,
           player_number: 1, // 第一个玩家
+          tank_x: initialPositions[0].x,
+          tank_y: initialPositions[0].y,
+          tank_direction: 'up',
+          health: 100,
+          is_alive: true,
         }])
         .select()
         .single();
@@ -113,6 +124,12 @@ export default function TankGame() {
         return;
       }
 
+      // 根据玩家编号设置初始位置
+      const initialPositions = [
+        { x: 50, y: GAME_CONFIG.CANVAS_HEIGHT - 100 },  // 玩家1在底部
+        { x: GAME_CONFIG.CANVAS_WIDTH - 90, y: GAME_CONFIG.CANVAS_HEIGHT - 100 }  // 玩家2在右下角
+      ];
+
       // 创建玩家
       const playerNumber = existingPlayers.length + 1;
       const { data: newPlayer, error: playerError } = await supabase
@@ -121,6 +138,11 @@ export default function TankGame() {
           room_id: roomId,
           user_id: user.id,
           player_number: playerNumber,
+          tank_x: initialPositions[playerNumber - 1]?.x || 50,
+          tank_y: initialPositions[playerNumber - 1]?.y || GAME_CONFIG.CANVAS_HEIGHT - 100,
+          tank_direction: 'up',
+          health: 100,
+          is_alive: true,
         }])
         .select()
         .single();
@@ -138,6 +160,7 @@ export default function TankGame() {
       // 如果这是第二个玩家，开始游戏
       if (existingPlayers.length === 1) {
         await startGame(roomId);
+        setGameStatus('playing');
       }
     } catch (error: any) {
       console.error('加入房间失败:', error);
